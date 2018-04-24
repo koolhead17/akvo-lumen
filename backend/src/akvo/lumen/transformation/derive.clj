@@ -6,6 +6,7 @@
             [clojure.tools.logging :as log]
             [hugsql.core :as hugsql])
   (:import [javax.script ScriptEngineManager ScriptEngine Invocable ScriptContext Bindings]
+           [delight.nashornsandbox NashornSandboxes NashornSandbox]
            [jdk.nashorn.api.scripting NashornScriptEngineFactory ClassFilter]))
 
 (hugsql/def-db-fns "akvo/lumen/transformation/derive.sql")
@@ -19,23 +20,34 @@
     (exposeToScripts [this s]
       false)))
 
-(defn remove-bindings [^Bindings bindings]
+#_(defn remove-bindings [^Bindings bindings]
   (doseq [function ["print" "load" "loadWithNewGlobal" "exit" "quit" "eval"]]
     (.remove bindings function)))
 
+(defn ^NashornSandbox js-engine []
+  (let [sandbox (NashornSandboxes/create)]
+    (.allowReadFunctions sandbox false)
+    (.allowLoadFunctions sandbox false)
+    (.allowPrintFunctions sandbox false)
+    (.allowExitFunctions sandbox false) 
+    (.allowGlobalsObjects sandbox false)
+    sandbox))
+
 (defn row-transform [code]
-  (let [factory (NashornScriptEngineFactory.)
-        engine (.getScriptEngine factory class-filter)
-        bindings (.getBindings engine ScriptContext/ENGINE_SCOPE)]
-    (remove-bindings bindings)
-    (.eval ^ScriptEngine engine ^String (derive-column-function code))
+  (let [;; factory (NashornScriptEngineFactory.)
+;;        engine (.getScriptEngine factory class-filter)
+        sandbox (js-engine)
+;        bindings (.getBindings engine ScriptContext/ENGINE_SCOPE)
+        ]
+    #_(remove-bindings bindings)
+    (.eval ^NashornSandbox sandbox ^String (derive-column-function code))
     (fn [row]
-      (.invokeFunction ^Invocable engine "deriveColumn" (object-array [row])))))
+      (.invokeFunction ^Invocable (.getSandboxedInvocable sandbox) "deriveColumn" (object-array [row])))))
 
 (defn valid? [code]
   (boolean
-   (and (not (str/includes? code "function"))
-        (not (str/includes? code "=>"))
+   (and (not (str/includes? code "function")) ;; replace witn AST analysis
+        (not (str/includes? code "=>")) ;; replace witn AST analysis
         (try (row-transform code)
              ;; Catches syntax errors
              (catch Exception e
